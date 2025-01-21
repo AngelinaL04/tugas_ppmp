@@ -13,27 +13,37 @@ class ReservationViewSet(ModelViewSet):
     queryset = Reservation.objects.all()
     serializer_class = ReservationSerializer
 
-    @transaction.atomic  # Pastikan kedua proses ini berjalan dalam satu transaksi
-    def perform_create(self, serializer):
-        # Ambil objek room berdasarkan id yang diterima dalam request
-        room = Room.objects.get(id=serializer.validated_data['room'].id)
+    @transaction.atomic
+    def perform_update(self, serializer):
+        # Ambil reservasi sebelum diupdate
+        reservation = self.get_object()
+        old_room = reservation.room
 
-        # Cek apakah status room 'available'
-        if room.status == 'available':
-            # Jika tersedia, update status room menjadi 'unavailable'
-            room.status = 'unavailable'
-            room.save()
+        # Ambil data kamar baru dari request
+        new_room_id = serializer.validated_data['room'].id
+        new_room = Room.objects.get(id=new_room_id)
 
-            # Simpan objek Reservation
-            serializer.save()
+        # Jika kamar lama berbeda dengan kamar baru
+        if old_room.id != new_room.id:
+            # Ubah kamar lama menjadi available
+            old_room.status = 'available'
+            old_room.save()
+
+        # Ubah kamar baru menjadi unavailable jika masih available
+        if new_room.status == 'available':
+            new_room.status = 'unavailable'
+            new_room.save()
         else:
-            # Jika room sudah tidak tersedia, beri error
-            raise ValueError("Room is already unavailable")
+            raise ValueError("The new room is already unavailable.")
 
-    def create(self, request, *args, **kwargs):
+        # Simpan perubahan reservasi
+        serializer.save()
+
+    def update(self, request, *args, **kwargs):
         try:
-            # Lanjutkan untuk memproses request create
-            return super().create(request, *args, **kwargs)
+            # Lanjutkan untuk memproses request update
+            return super().update(request, *args, **kwargs)
         except ValueError as e:
-            # Jika terjadi error (misal room sudah tidak tersedia), kembalikan error
+            # Jika terjadi error (misal room baru sudah tidak tersedia), kembalikan error
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
